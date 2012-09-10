@@ -41,14 +41,17 @@ exports = module.exports = function directory(root, options){
   // root required
   if (!root) throw new Error('directory() root path required');
   var hidden = options.hidden
-    , root = normalize(root);
+    , root = normalize(root)
+    , tryMarkdownFilesSuffix = [ '', '.markdown', '.mkdn', '.md' ]; // try these in series if not found
 
   return function directory(req, res, next) {
     if ('GET' != req.method && 'HEAD' != req.method) return next();
 
+    req.tryMarkdownFilesIndex = (req.hasOwnProperty("tryMarkdownFilesIndex")) ? req.tryMarkdownFilesIndex++ : 0;
+
     var accept = req.headers.accept || 'text/plain'
       , url = parse(req.url)
-      , dir = decodeURIComponent(url.pathname)
+      , dir = decodeURIComponent(url.pathname + tryMarkdownFilesSuffix[req.tryMarkdownFilesIndex])
       , path = normalize(join(root, dir))
       , originalUrl = parse(req.originalUrl)
       , originalDir = decodeURIComponent(originalUrl.pathname)
@@ -62,9 +65,18 @@ exports = module.exports = function directory(root, options){
 
     // check if we have a directory
     fs.stat(path, function(err, stat){
-      if (err) return 'ENOENT' == err.code
-        ? next()
-        : next(err);
+      if (err) {
+        if ('ENOENT' == err.code) {
+          // check if files with common markdown suffixes exist
+          if (req.tryMarkdownFilesIndex==(tryMarkdownFilesSuffix.length-1)) {
+            return next();
+          }
+          req.tryMarkdownFilesIndex ++;
+          return directory( req, res, next );
+        } else {
+          return next(err);
+        }
+      }
 
       if (stat.isDirectory()) {
         // fetch files
@@ -153,4 +165,3 @@ function removeHidden(files) {
         return '.' != file[0];
     });
 }
-
